@@ -72,19 +72,19 @@ json_object_set_new( root, "powerfactor", json_real(tab_reg[8]*0.01));
 s = json_dumps(root, 0);
 
 //puts(s);
+curl_global_init(CURL_GLOBAL_ALL);
+curl_handle = curl_easy_init();
 
 strcpy(url, HOST);
 strcat(url, "/emoncms/input/post?node=emontx&fulljson=");
-strcat(url, s);
+strcat(url, curl_easy_escape(curl_handle, s, strlen(s)));
 strcat(url, "&apikey=");
 strcat(url, API_KEY);
 
-	curl_global_init(CURL_GLOBAL_ALL);
-	curl_handle = curl_easy_init();
-	curl_easy_setopt(curl_handle, CURLOPT_URL, url);
-	res = curl_easy_perform(curl_handle);
-	curl_easy_cleanup(curl_handle);
-	curl_global_cleanup();
+curl_easy_setopt(curl_handle, CURLOPT_URL, url);
+res = curl_easy_perform(curl_handle);
+curl_easy_cleanup(curl_handle);
+curl_global_cleanup();
 }
 //json_decref(root);
 //s = NULL;
