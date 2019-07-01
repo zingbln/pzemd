@@ -21,8 +21,6 @@ int main (void) {
     uint16_t tab_reg[64];
     int rc;
     int i;
-    CURL *curl_handle;
-    CURLcode res;
 
 
 config = json_load_file("config.json", 0, &error);
@@ -50,6 +48,7 @@ rc = modbus_set_slave(ctx, 0x01);
       fprintf(stderr, "Slave set to 0x01\n");
     }
 
+curl_global_init(CURL_GLOBAL_ALL);
 
 while(1){
 rc = modbus_read_input_registers(ctx, 0, 10, tab_reg);
@@ -72,25 +71,31 @@ json_object_set_new( root, "powerfactor", json_real(tab_reg[8]*0.01));
 s = json_dumps(root, 0);
 
 //puts(s);
-curl_global_init(CURL_GLOBAL_ALL);
-curl_handle = curl_easy_init();
+CURL *curl = curl_easy_init();
+if(curl) {
+CURLcode res;
 
 strcpy(url, HOST);
 strcat(url, "/emoncms/input/post?node=emontx&fulljson=");
-strcat(url, curl_easy_escape(curl_handle, s, strlen(s)));
+char *output = curl_easy_escape(curl, s, strlen(s));
+strcat(url, output);
 strcat(url, "&apikey=");
 strcat(url, API_KEY);
+if(output) {
+	curl_free(output);
+}
 
-curl_easy_setopt(curl_handle, CURLOPT_URL, url);
-res = curl_easy_perform(curl_handle);
-curl_easy_cleanup(curl_handle);
-curl_global_cleanup();
+curl_easy_setopt(curl, CURLOPT_URL, url);
+res = curl_easy_perform(curl);
+//curl_easy_cleanup(curl);
+curl_free(curl);
+}
 }
 //json_decref(root);
 //s = NULL;
 sleep(1);
 }
-
+curl_global_cleanup();
 modbus_close(ctx);
 modbus_free(ctx);
 
