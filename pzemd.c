@@ -20,14 +20,13 @@ int main (void) {
     modbus_t *ctx;
     uint16_t tab_reg[64];
     int rc;
-    int i;
 
 
 config = json_load_file("config.json", 0, &error);
     if(!config)
         fprintf(stderr, "no config file found\n");
     if(error.line != -1)
-        fprintf(stderr, "json_load_file returned an invalid line number %s\n", error.line);
+        fprintf(stderr, "json_load_file returned an invalid line number %d \n", error.line);
 
 strcpy(USB_SERIAL,  json_string_value(json_object_get(config, "USB_SERIAL"))); 
 strcpy(HOST,  json_string_value(json_object_get(config, "HOST")));
@@ -49,6 +48,8 @@ rc = modbus_set_slave(ctx, 0x01);
     }
 
 curl_global_init(CURL_GLOBAL_ALL);
+FILE* file = fopen( "/tmp/fuck", "w");
+
 
 while(1){
 rc = modbus_read_input_registers(ctx, 0, 10, tab_reg);
@@ -73,7 +74,6 @@ s = json_dumps(root, 0);
 //puts(s);
 CURL *curl = curl_easy_init();
 if(curl) {
-CURLcode res;
 
 strcpy(url, HOST);
 strcat(url, "/emoncms/input/post?node=emontx&fulljson=");
@@ -86,9 +86,10 @@ if(output) {
 }
 
 curl_easy_setopt(curl, CURLOPT_URL, url);
-res = curl_easy_perform(curl);
-//curl_easy_cleanup(curl);
-curl_free(curl);
+curl_easy_setopt(curl , CURLOPT_WRITEDATA, file) ;
+curl_easy_perform(curl);
+curl_easy_cleanup(curl);
+//curl_free(curl);
 }
 }
 //json_decref(root);
@@ -96,6 +97,7 @@ curl_free(curl);
 sleep(1);
 }
 curl_global_cleanup();
+fclose(file);
 modbus_close(ctx);
 modbus_free(ctx);
 
