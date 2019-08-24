@@ -1,7 +1,7 @@
 CC = gcc
 CC_OPTIONS = -O -Wmissing-prototypes -Wall -pedantic 
 
-LIBS = -lmodbus -ljansson -lcurl 
+LIBS = -lmodbus -lcurl 
 
 default: all
 

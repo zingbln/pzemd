@@ -5,34 +5,42 @@
 #include <errno.h>
 
 #include <modbus/modbus.h>
-#include <jansson.h>
 #include <curl/curl.h>
 
 int main (void) {
-    char USB_SERIAL[10];
-    char HOST[100];
-    char API_KEY[100];
-    char url[500];
-    char* s = NULL;
-    json_t *config;
-    json_error_t error;
-    json_t *root = json_object();
+    char USB_SERIAL[10], HOST[100], API_KEY[100], url[500],  val[100];
+    char s[150];// = NULL;
     modbus_t *ctx;
     uint16_t tab_reg[64];
     int rc;
 
+FILE* ptr = fopen("pzemd.cfg","r"); 
+if (ptr==NULL) { 
+    printf("no such file pzemd.cfg.\n"); 
+    return 0; 
+    } 
 
-config = json_load_file("config.json", 0, &error);
-    if(!config)
-        fprintf(stderr, "no config file found\n");
-    if(error.line != -1)
-        fprintf(stderr, "json_load_file returned an invalid line number %d \n", error.line);
+if (fscanf(ptr, " USBSERIAL=%s ", val) == 1) {
+    strcpy(USB_SERIAL, val); 
+} else {
+     printf("Please configure your USB Serial Port in pzemd.cfg\n"); 
+    return 0; 
+} 
+if (fscanf(ptr, " HOST=%s", val) == 1)  {
+    strcpy(HOST, val); 
+} else {
+     printf("Please configure your Emoncms Host in pzemd.cfg\n"); 
+    return 0; 
+}
+if (fscanf(ptr, " APIKEY=%s", val) == 1) {
+    strcpy(API_KEY, val); 
+}else {
+     printf("Please configure your Emoncms Api Key in pzemd.cfg\n"); 
+    return 0; 
+}
+fclose(ptr);
 
-strcpy(USB_SERIAL,  json_string_value(json_object_get(config, "USB_SERIAL"))); 
-strcpy(HOST,  json_string_value(json_object_get(config, "HOST")));
-strcpy(API_KEY,  json_string_value(json_object_get(config, "API_KEY"))); 
-
-ctx = modbus_new_rtu(USB_SERIAL, 9600, 'N', 8, 1);
+ ctx = modbus_new_rtu(USB_SERIAL, 9600, 'N', 8, 1);
 if (modbus_connect(ctx) == -1) {
 	fprintf(stderr, "Connection failed: %s\n", modbus_strerror(errno));
 	modbus_free(ctx);
@@ -48,58 +56,40 @@ rc = modbus_set_slave(ctx, 0x01);
     }
 
 curl_global_init(CURL_GLOBAL_ALL);
-FILE* file = fopen( "/tmp/fuck", "w");
-
+CURL *curl = curl_easy_init();
+if(curl) {
+curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
+curl_easy_setopt(curl, CURLOPT_TCP_KEEPIDLE, 120L);
+curl_easy_setopt(curl, CURLOPT_TCP_KEEPINTVL, 60L);
+}
 
 while(1){
-rc = modbus_read_input_registers(ctx, 0, 10, tab_reg);
+
+ rc = modbus_read_input_registers(ctx, 0, 10, tab_reg);
 if (rc == -1) {
     fprintf(stderr, "%s\n", modbus_strerror(errno));
     //return -1;
 }
 if (rc != -1) {
-//for (i=0; i < rc; i++) {
-//    printf("reg[%d]=%d (0x%X)\n", i, tab_reg[i], tab_reg[i]);
-//}
 
-json_object_set_new( root, "current", json_real(tab_reg[1]*0.001));
-json_object_set_new( root, "power", json_real(tab_reg[3]*0.1));
-json_object_set_new( root, "voltage", json_real(tab_reg[0]*0.1));
-json_object_set_new( root, "frequency", json_real(tab_reg[7]*0.1));
-json_object_set_new( root, "energy", json_real(tab_reg[5]));
-json_object_set_new( root, "powerfactor", json_real(tab_reg[8]*0.01));
-		  
-s = json_dumps(root, 0);
+sprintf(s, "{\"current\": %f, \"power\": %f, \"voltage\": %f, \"frequency\": %f, \"energy\": %d, \"powerfactor\": %f}", tab_reg[1]*0.001, tab_reg[3]*0.1, tab_reg[0]*0.1, tab_reg[7]*0.1, tab_reg[5], tab_reg[8]*0.0);
 
-//puts(s);
-CURL *curl = curl_easy_init();
 if(curl) {
-
-strcpy(url, HOST);
-strcat(url, "/emoncms/input/post?node=emontx&fulljson=");
 char *output = curl_easy_escape(curl, s, strlen(s));
-strcat(url, output);
-strcat(url, "&apikey=");
-strcat(url, API_KEY);
+sprintf(url, "%s/emoncms/input/post?node=emontx&fulljson=%s&apikey=%s", HOST, output, API_KEY);
 if(output) {
 	curl_free(output);
 }
 
 curl_easy_setopt(curl, CURLOPT_URL, url);
-curl_easy_setopt(curl , CURLOPT_WRITEDATA, file) ;
 curl_easy_perform(curl);
-curl_easy_cleanup(curl);
-//curl_free(curl);
 }
 }
-//json_decref(root);
-//s = NULL;
 sleep(1);
 }
+curl_easy_cleanup(curl);
 curl_global_cleanup();
-fclose(file);
 modbus_close(ctx);
 modbus_free(ctx);
-
     return 0;
 }
