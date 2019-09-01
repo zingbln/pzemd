@@ -10,9 +10,46 @@
 #include <curl/curl.h>
 #include <dirent.h>
 
-//#define NUMT 1
-void upload_tmp(char *filename);
+//#define NUMT 
+struct BuffStruct parse_tmp(char *filename);
 int file_select(const struct dirent *entry);
+char* bulk_upload(int buff[][7], int j);
+struct MemoryStruct chunk;
+
+char HOST[100], API_KEY[100];
+
+struct MemoryStruct {
+  char *memory;
+  size_t size;
+};
+
+struct BuffStruct {
+        int buff[30][7];
+        int len;
+};
+
+static size_t
+
+WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp)
+{
+  size_t realsize = size * nmemb;
+  struct MemoryStruct *mem = (struct MemoryStruct *)userp;
+
+  char *ptr = realloc(mem->memory, mem->size + realsize + 1);
+  if(ptr == NULL) {
+    /* out of memory! */ 
+    printf("not enough memory (realloc returned NULL)\n");
+    return 0;
+  }
+  
+  mem->memory = ptr;
+  
+  memcpy(&(mem->memory[mem->size]), contents, realsize);
+  mem->size += realsize;
+  mem->memory[mem->size] = 0;
+ 
+  return realsize;
+}
 /*static void *bufferupload(int *buffer, int *i) {
     int k;
     for ( k=0; k=i;  k++) {
@@ -30,29 +67,74 @@ int file_select(const struct dirent *entry);
 }
 */
 
-void upload_tmp(char *filename){
+struct BuffStruct parse_tmp(char *filename){
 	FILE *file;
     char line[100];
     char seps[] = ",";
     char* val;
-    int input[7];
+    //int buff[30][7];
     int i = 0;
+    int j = 0;
     int var;
-
-	file = fopen(filename, "r");
-
-    while(fgets(line,100,file) != NULL) {
-        //printf("%s", line);
-        val = strtok (line, seps);
-        while (val != NULL) {
+    struct BuffStruct r;
+	
+    file = fopen(filename, "r");
+    
+    if (file != NULL) {
+        while(fgets(line,100,file) != NULL) {
+            val = strtok (line, seps);
+            while (val != NULL) {
                 sscanf (val, "%d", &var);
-                input[i++] = var;
-                printf("%d\n", input[i]);
+                r.buff[j][i++] = var;
+                r.len = j;
                 val = strtok (NULL, seps);
         }
+        j++;
     }
     fclose(file);
+    }
+    return r;
+    
+}
 
+char* bulk_upload(int buff[][7], int j){
+char url[8000], s[7000], p[7000], *result;// = NULL;
+int k;
+
+CURL *curl = curl_easy_init();
+if (curl) {
+CURLcode res;
+
+
+strcpy(s, "[");
+for ( k=0; k<=j;  k++) {
+        //printf("%d, %d, %d, %d, %d, %d",buff[k][1],  buff[k][2], buff[k][3], buff[k][4], buff[k][5], buff[k][6] );
+    sprintf(p, "[%d, \"emontx\",{\"current\":%.2f},{\"power\":%.2f},{\"voltage\":%.2f},{\"frequency\":%.2f},{\"energy\":%.0f},{\"powerfactor\":%.2f}]", buff[k][0]-buff[j][0], buff[k][1]*0.0001, buff[k][2]*0.01, buff[k][3]*0.01, buff[k][4]*0.01, buff[k][5]*0.1, buff[k][6]*0.001);   
+
+
+strcat(s,p);
+if (k<j){strcat(s, ",");}
+}
+strcat(s, "]");
+printf("%s\n", s);
+char *output = curl_easy_escape(curl, s, strlen(s));
+sprintf(url, "%s/emoncms/input/bulk.json?data=%s&&time=%d&apikey=%s", HOST,  output, buff[j][0], API_KEY);
+if(output) {
+	curl_free(output);
+    }
+curl_easy_setopt(curl, CURLOPT_URL, url);
+curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+res = curl_easy_perform(curl);
+if(res == CURLE_OK) {
+    result =  chunk.memory;
+}
+else {
+    result = "false";
+}
+curl_easy_cleanup(curl);
+}
+return result;
 }
 
 int file_select(const struct dirent *entry)
@@ -64,8 +146,8 @@ int file_select(const struct dirent *entry)
 }
 
 int main (void) {
-    char USB_SERIAL[10], HOST[100], API_KEY[100], url[8000],  val[100], filename[12];
-    char s[7000], p[7000];// = NULL;
+    char USB_SERIAL[10], url[8000],  val[100], filename[12], *result[100];
+    char s[7000]; //p[7000];// = NULL;
     modbus_t *ctx;
     uint16_t tab_reg[64];
     int rc;
@@ -76,6 +158,7 @@ int main (void) {
     //pthread_t tid[NUMT]
     FILE *tmp;
     struct dirent **namelist;
+    
 
 FILE* ptr = fopen("pzemd.cfg","r"); 
 if (ptr==NULL) { 
@@ -106,8 +189,13 @@ fclose(ptr);
 n = scandir(".", &namelist, file_select, alphasort);
 if (n > 0) {
     for (k=0; k<n; k++) {
-        printf("%s\n", namelist[k]->d_name);
-        upload_tmp(namelist[k]->d_name);
+        printf("%d %s\n", k,  namelist[k]->d_name);
+        struct BuffStruct t = parse_tmp(namelist[k]->d_name);
+        printf("%d\n", t.len);
+        /*bulk_upload(buff, lines);
+        if (strcmp(result, "ok") == 0) {
+            remove(namelist[k]->d_name);    
+        }*/
         free(namelist[k]);
         }
     free(namelist);
@@ -164,13 +252,13 @@ curl_easy_perform(curl);
 //    int (*buff)[i] = realloc(buff, sizeof(int[7][i]));
 //}
 
-buff[i][0] = (int)time(NULL);
+/*buff[i][0] = (int)time(NULL);
 buff[i][1] = tab_reg[1];
 buff[i][2] = tab_reg[3]; 
 buff[i][3] = tab_reg[0]; 
 buff[i][4] = tab_reg[7]; 
 buff[i][5] = tab_reg[5];
-buff[i][6] = tab_reg[8];
+buff[i][6] = tab_reg[8];*/
 
 buff10[j][0] = (int)time(NULL);
 buff10[j][1] += tab_reg[1]; 
@@ -180,12 +268,12 @@ buff10[j][4] += tab_reg[7];
 buff10[j][5] += tab_reg[5];
 buff10[j][6] += tab_reg[8];
 
-printf("%d %d %d %d %d %d %d\n",buff[i][0],  buff[i][1], buff[i][2], buff[i][3], buff[i][4], buff[i][5], buff[i][6] );
+//printf("%d %d %d %d %d %d %d\n",buff[i][0],  buff[i][1], buff[i][2], buff[i][3], buff[i][4], buff[i][5], buff[i][6] );
 i++;
 //printf("%.0f %.2f %.2f %.2f %.2f %.2f %.2f\n",buff10[j][0],  buff10[j][1], buff10[j][2], buff10[j][3], buff10[j][4], buff10[j][5], buff10[j][6] );
 
 //printf("%d \n" , sizeof(int[7][i]));
-if (i==10) {; 
+if (i==10) { 
    /* buff10[j][1] = buff10[j][1]*0.1;
     buff10[j][2] = buff10[j][2]*0.1;
     buff10[j][3] = buff10[j][3]*0.1; 
@@ -195,12 +283,13 @@ if (i==10) {;
 
     printf("%d %d %d %d %d %d %d\n",buff10[j][0],  buff10[j][1], buff10[j][2], buff10[j][3], buff10[j][4], buff10[j][5], buff10[j][6] );
 
-j++;
-i=0;
+    j++;
+    i=0;
 
+    chunk.memory = malloc(1);
+    chunk.size = 0;
 
-
-if (j==1 && m==0) {
+if (j==31 && m==0) {
     sprintf(s, "{\"current\": %.2f, \"power\": %.2f, \"voltage\": %.2f, \"frequency\": %.2f, \"energy\": %.0f, \"powerfactor\": %.2f}", buff10[j-1][1] *0.0001, buff10[j-1][2] *0.01, buff10[j-1][3] *0.01, buff10[j-1][4] *0.01, buff10[j-1][5]*0.1 , buff10[j-1][6] *0.001);
     if(curl) {
         char *output = curl_easy_escape(curl, s, strlen(s));
@@ -221,7 +310,14 @@ if (j==1 && m==0) {
 }
 
 if (j>1 && m==0) {
-    if(curl) {
+    *result = bulk_upload(buff10, j-1);
+    printf("§%s\n", *result);
+    if (strcmp(*result, "ok") == 0) {
+            j=0;
+            memset(buff10, 0, sizeof buff10);
+    }
+
+/*    if(curl) {
         strcpy(s, "[");
     //https://e.com/input/bulk.json?data=[[0,1,{"power":10, "voltage": 240}],[10,1,{"power":11, "voltage": 240.2}]]
     for ( k=0; k<=j-1;  k++) {
@@ -234,7 +330,7 @@ if (j>1 && m==0) {
     strcat(s, "]");
     printf("%s\n", s);
         char *output = curl_easy_escape(curl, s, strlen(s));
-        sprintf(url, "%s/emoncms/input/bulk.json?data=%s&&time=%d&apikey=%s", HOST,  output, buff[j-1][0], API_KEY);
+        sprintf(url, "%s/emoncms/input/bulk.json?data=%s&&time=%d&apikey=%s", HOST,  output, buff10[j-1][0], API_KEY);
         if(output) {
 	    curl_free(output);
         }
@@ -252,14 +348,15 @@ if (j>1 && m==0) {
         }
 
 }
-}
+}*/
 }
 
 
 if (j==30 && m==0) {
 
-        sprintf(filename, "%d.tmp", buff10[0][0]);
-        tmp = fopen(filename, "w+"); 
+    sprintf(filename, "%d.tmp", buff10[0][0]);
+    tmp = fopen(filename, "w+"); 
+    if (tmp != NULL) {
     for(k=0;k<j-1;k++){
          fprintf(tmp, "%d,%d,%d,%d,%d,%d,%d\n", buff10[k][0], buff10[k][1], buff10[k][2], buff10[k][3], buff10[k][4], buff10[k][5], buff10[k][6]);  
     }
@@ -267,6 +364,7 @@ if (j==30 && m==0) {
     fclose(tmp);
     j=0;
     m++;
+    }
 }
 
 if (m>0) {
@@ -274,10 +372,12 @@ if (m>0) {
         sprintf(filename, "%d.tmp", buff10[0][0]);
         tmp = fopen(filename, "w+"); 
     }
-    fprintf(tmp, "%d,%d,%d,%d,%d,%d,%d\n", buff10[j-1][0], buff10[j-1][1], buff10[j-1][2], buff10[j-1][3], buff10[j-1][4], buff10[j-1][5], buff10[j-1][6]);
-    fflush(tmp);
-    if (j==30) {
-    fclose(tmp);
+    if (tmp != NULL) {
+        fprintf(tmp, "%d,%d,%d,%d,%d,%d,%d\n", buff10[j-1][0], buff10[j-1][1], buff10[j-1][2], buff10[j-1][3], buff10[j-1][4], buff10[j-1][5], buff10[j-1][6]);
+        fflush(tmp);
+        if (j==30) {
+        fclose(tmp);
+        }
     memset(buff10, 0, sizeof buff10);
     j=0;
     m++;
@@ -291,6 +391,7 @@ sleep(1);
 }
 free(buff);
 free(buff10);
+free(chunk.memory);
 curl_easy_cleanup(curl);
 curl_global_cleanup();
 modbus_close(ctx);
