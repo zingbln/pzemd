@@ -11,24 +11,18 @@
 #include <dirent.h>
 
 //#define NUMT 
-//struct BuffStruct parse_tmp(char *filename);
-int parse_tmp(char *filename, int buff[30][7]);
 
+void upload_tmp(void);
 int file_select(const struct dirent *entry);
 char* bulk_upload(int buff[][7], int j);
 struct MemoryStruct chunk;
 
-char HOST[100], API_KEY[100];
+char HOST[20],PATH[20], API_KEY[100];
 
 struct MemoryStruct {
   char *memory;
   size_t size;
 };
-
-/*struct BuffStruct {
-        int buff[30][7];
-        int len;
-};*/
 
 static size_t
 
@@ -70,37 +64,55 @@ WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp)
 */
 
 //struct BuffStruct parse_tmp(char *filename){
-int parse_tmp(char *filename, int buff[30][7]){
+void upload_tmp(void){
     FILE *file;
-    char line[100];
+    struct dirent **namelist;
+    char line[100], *result[100];
     char seps[] = ",";
     char* val;
-    //int csv[30][7];
+    int buff[30][7];
     int i = 0;
     int j = 0;
+    int n = 0;
+    int k = 0;
     int var;
 
-    file = fopen(filename, "r");
+
+    n = scandir(".", &namelist, file_select, alphasort);
+    if (n > 0) {
+        for (k=0; k<n; k++) {
+            printf("%d %s\n", k,  namelist[k]->d_name);
+            //j = parse_tmp(namelist[k]->d_name, buff);
+            file = fopen(namelist[k]->d_name, "r");
     
-    if (file != NULL) {
-        while(fgets(line,100,file) != NULL) {
-            //line[strlen(line)-1]=',';
-            //printf("%s\n", line);
-            val = strtok (line, seps);
-            while (val != NULL) {
-                sscanf (val, "%d", &var);
-                buff[j][i++] = var;
-                val = strtok (NULL, seps);
-        }
+            if (file != NULL) {
+                while(fgets(line,100,file) != NULL) {
+                //line[strlen(line)-1]=',';
+                //printf("%s\n", line);
+                val = strtok (line, seps);
+                while (val != NULL) {
+                    sscanf (val, "%d", &var);
+                    buff[j][i++] = var;
+                    val = strtok (NULL, seps);
+            }
             i=0;
             j++;
+        }
+        fclose(file);
+        }
+        *result = bulk_upload(buff, j-1);
+        printf("§%s\n", *result);
+        if (strcmp(*result, "ok") == 0) {
+            remove(namelist[k]->d_name);    
+        }
+        free(namelist[k]);
+        }
+    free(namelist);
     }
-    fclose(file);
-    }
+
     //printf("%d\n", len);
     //for (i=0; i<30; i++) {printf("%d %d\n", csv[i][0], csv[i][6]);}
     //struct BuffStruct r = {{{ **csv, len }}};
-    return j;
 
     
 }
@@ -108,6 +120,10 @@ int parse_tmp(char *filename, int buff[30][7]){
 char* bulk_upload(int buff[][7], int j){
 char url[8000], s[7000], p[7000], *result;// = NULL;
 int k;
+
+chunk.memory = malloc(1);
+chunk.size = 0;
+
 
 CURL *curl = curl_easy_init();
 if (curl) {
@@ -117,7 +133,7 @@ CURLcode res;
 strcpy(s, "[");
 for ( k=0; k<=j;  k++) {
         //printf("%d, %d, %d, %d, %d, %d",buff[k][1],  buff[k][2], buff[k][3], buff[k][4], buff[k][5], buff[k][6] );
-    sprintf(p, "[%d, \"emontx\",{\"current\":%.2f},{\"power\":%.2f},{\"voltage\":%.2f},{\"frequency\":%.2f},{\"energy\":%.0f},{\"powerfactor\":%.2f}]", buff[k][0]-buff[j][0], buff[k][1]*0.0001, buff[k][2]*0.01, buff[k][3]*0.01, buff[k][4]*0.01, buff[k][5]*0.1, buff[k][6]*0.001);   
+    sprintf(p, "[%d, \"emontx\",{\"current\":%.4f},{\"power\":%.3f},{\"voltage\":%.2f},{\"frequency\":%.2f},{\"energy\":%.0f},{\"powerfactor\":%.2f}]", buff[k][0]-buff[j][0], buff[k][1]*0.0001, buff[k][2]*0.01, buff[k][3]*0.01, buff[k][4]*0.01, buff[k][5]*0.1, buff[k][6]*0.001);   
 
 
 strcat(s,p);
@@ -126,7 +142,7 @@ if (k<j){strcat(s, ",");}
 strcat(s, "]");
 printf("%s\n", s);
 char *output = curl_easy_escape(curl, s, strlen(s));
-sprintf(url, "%s/emoncms/input/bulk.json?data=%s&&time=%d&apikey=%s", HOST,  output, buff[j][0], API_KEY);
+sprintf(url, "%s/%s/input/bulk.json?data=%s&&time=%d&apikey=%s", HOST, PATH,  output, buff[j][0], API_KEY);
 if(output) {
 	curl_free(output);
     }
@@ -159,13 +175,13 @@ int main (void) {
     modbus_t *ctx;
     uint16_t tab_reg[64];
     int rc;
-    int i,j,k,m,n;
+    int i,j,k,m;
     long response_code;
-    int buff[30][7];
+    //int buff[30][7];
     int buff10[30][7]; 
     //pthread_t tid[NUMT]
     FILE *tmp;
-    struct dirent **namelist;
+    //struct dirent **namelist;
     
 
 FILE* ptr = fopen("pzemd.cfg","r"); 
@@ -186,6 +202,12 @@ if (fscanf(ptr, " HOST=%s", val) == 1)  {
      printf("Please configure your Emoncms Host in pzemd.cfg\n"); 
     return 0; 
 }
+if (fscanf(ptr, " EMONPATH=%s", val) == 1)  {
+    strcpy(PATH, val); 
+} else {
+     printf("Please configure your Emoncms Path in pzemd.cfg\n"); 
+    return 0; 
+}
 if (fscanf(ptr, " APIKEY=%s", val) == 1) {
     strcpy(API_KEY, val); 
 }else {
@@ -194,7 +216,7 @@ if (fscanf(ptr, " APIKEY=%s", val) == 1) {
 }
 fclose(ptr);
 
-n = scandir(".", &namelist, file_select, alphasort);
+/*n = scandir(".", &namelist, file_select, alphasort);
 if (n > 0) {
     for (k=0; k<n; k++) {
         printf("%d %s\n", k,  namelist[k]->d_name);
@@ -203,14 +225,15 @@ if (n > 0) {
         //printf("%d\n", j);
         //for (k=0; k<30; k++) {printf("%d\n", buff[k][0]);}
         *result = bulk_upload(buff, j-1);
-        /*if (strcmp(result, "ok") == 0) {
+        printf("§%s\n", *result);
+        if (strcmp(*result, "ok") == 0) {
             remove(namelist[k]->d_name);    
-        }*/
+        }
         free(namelist[k]);
         }
     free(namelist);
-}
-
+}*/
+upload_tmp();
 
  ctx = modbus_new_rtu(USB_SERIAL, 9600, 'N', 8, 1);
 if (modbus_connect(ctx) == -1) {
@@ -296,14 +319,14 @@ if (i==10) {
     j++;
     i=0;
 
-    chunk.memory = malloc(1);
-    chunk.size = 0;
+    /*chunk.memory = malloc(1);
+    chunk.size = 0;*/
 
 if (j==31 && m==0) {
-    sprintf(s, "{\"current\": %.2f, \"power\": %.2f, \"voltage\": %.2f, \"frequency\": %.2f, \"energy\": %.0f, \"powerfactor\": %.2f}", buff10[j-1][1] *0.0001, buff10[j-1][2] *0.01, buff10[j-1][3] *0.01, buff10[j-1][4] *0.01, buff10[j-1][5]*0.1 , buff10[j-1][6] *0.001);
+    sprintf(s, "{\"current\": %.4f, \"power\": %.3f, \"voltage\": %.2f, \"frequency\": %.2f, \"energy\": %.0f, \"powerfactor\": %.2f}", buff10[j-1][1] *0.0001, buff10[j-1][2] *0.01, buff10[j-1][3] *0.01, buff10[j-1][4] *0.01, buff10[j-1][5]*0.1 , buff10[j-1][6] *0.001);
     if(curl) {
         char *output = curl_easy_escape(curl, s, strlen(s));
-        sprintf(url, "%s/emoncms/input/post?node=emontx&fulljson=%s&apikey=%s", HOST, output, API_KEY);
+        sprintf(url, "%s/%s/input/post?node=emontx&fulljson=%s&apikey=%s", HOST, PATH, output, API_KEY);
         if(output) {
 	        curl_free(output);
         }
@@ -319,7 +342,7 @@ if (j==31 && m==0) {
         }
 }
 
-if (j>1 && m==0) {
+if (j>31 && m==0) {
     *result = bulk_upload(buff10, j-1);
     printf("§%s\n", *result);
     if (strcmp(*result, "ok") == 0) {
@@ -386,20 +409,30 @@ if (m>0) {
         fprintf(tmp, "%d,%d,%d,%d,%d,%d,%d\n", buff10[j-1][0], buff10[j-1][1], buff10[j-1][2], buff10[j-1][3], buff10[j-1][4], buff10[j-1][5], buff10[j-1][6]);
         fflush(tmp);
         if (j==30) {
-        fclose(tmp);
+            fclose(tmp);
+            memset(buff10, 0, sizeof buff10);
+            j=0;
+            sprintf(url, "%s/%s", HOST, PATH);
+            curl_easy_setopt(curl, CURLOPT_URL, url);
+            res = curl_easy_perform(curl);
+            }
+            if(res == CURLE_OK) {
+                upload_tmp();
+                m=0;
+            }
+            else {
+                m++;
+            }
         }
-    memset(buff10, 0, sizeof buff10);
-    j=0;
-    m++;
     }
-}
+
 
 
 }
 }
 sleep(1);
 }
-free(buff);
+//free(buff);
 free(buff10);
 free(chunk.memory);
 curl_easy_cleanup(curl);
