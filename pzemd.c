@@ -102,6 +102,7 @@ void upload_tmp(void){
         }
         *result = bulk_upload(buff, j-1);
         printf("§%s\n", *result);
+        j=0;
         if (strcmp(*result, "ok") == 0) {
             remove(namelist[k]->d_name);    
         }
@@ -322,7 +323,7 @@ if (i==10) {
     /*chunk.memory = malloc(1);
     chunk.size = 0;*/
 
-if (j==31 && m==0) {
+if (j==32 && m==0) {
     sprintf(s, "{\"current\": %.4f, \"power\": %.3f, \"voltage\": %.2f, \"frequency\": %.2f, \"energy\": %.0f, \"powerfactor\": %.2f}", buff10[j-1][1] *0.0001, buff10[j-1][2] *0.01, buff10[j-1][3] *0.01, buff10[j-1][4] *0.01, buff10[j-1][5]*0.1 , buff10[j-1][6] *0.001);
     if(curl) {
         char *output = curl_easy_escape(curl, s, strlen(s));
@@ -342,7 +343,7 @@ if (j==31 && m==0) {
         }
 }
 
-if (j>31 && m==0) {
+if (j>32 && m==0) {
     *result = bulk_upload(buff10, j-1);
     printf("§%s\n", *result);
     if (strcmp(*result, "ok") == 0) {
@@ -415,7 +416,7 @@ if (m>0) {
             sprintf(url, "%s/%s", HOST, PATH);
             curl_easy_setopt(curl, CURLOPT_URL, url);
             res = curl_easy_perform(curl);
-            }
+            
             if(res == CURLE_OK) {
                 upload_tmp();
                 m=0;
@@ -425,7 +426,7 @@ if (m>0) {
             }
         }
     }
-
+}
 
 
 }
