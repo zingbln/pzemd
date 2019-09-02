@@ -11,7 +11,9 @@
 #include <dirent.h>
 
 //#define NUMT 
-struct BuffStruct parse_tmp(char *filename);
+//struct BuffStruct parse_tmp(char *filename);
+int parse_tmp(char *filename, int buff[30][7]);
+
 int file_select(const struct dirent *entry);
 char* bulk_upload(int buff[][7], int j);
 struct MemoryStruct chunk;
@@ -23,10 +25,10 @@ struct MemoryStruct {
   size_t size;
 };
 
-struct BuffStruct {
+/*struct BuffStruct {
         int buff[30][7];
         int len;
-};
+};*/
 
 static size_t
 
@@ -67,33 +69,39 @@ WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp)
 }
 */
 
-struct BuffStruct parse_tmp(char *filename){
-	FILE *file;
+//struct BuffStruct parse_tmp(char *filename){
+int parse_tmp(char *filename, int buff[30][7]){
+    FILE *file;
     char line[100];
     char seps[] = ",";
     char* val;
-    //int buff[30][7];
+    //int csv[30][7];
     int i = 0;
     int j = 0;
     int var;
-    struct BuffStruct r;
-	
+
     file = fopen(filename, "r");
     
     if (file != NULL) {
         while(fgets(line,100,file) != NULL) {
+            //line[strlen(line)-1]=',';
+            //printf("%s\n", line);
             val = strtok (line, seps);
             while (val != NULL) {
                 sscanf (val, "%d", &var);
-                r.buff[j][i++] = var;
-                r.len = j;
+                buff[j][i++] = var;
                 val = strtok (NULL, seps);
         }
-        j++;
+            i=0;
+            j++;
     }
     fclose(file);
     }
-    return r;
+    //printf("%d\n", len);
+    //for (i=0; i<30; i++) {printf("%d %d\n", csv[i][0], csv[i][6]);}
+    //struct BuffStruct r = {{{ **csv, len }}};
+    return j;
+
     
 }
 
@@ -190,10 +198,12 @@ n = scandir(".", &namelist, file_select, alphasort);
 if (n > 0) {
     for (k=0; k<n; k++) {
         printf("%d %s\n", k,  namelist[k]->d_name);
-        struct BuffStruct t = parse_tmp(namelist[k]->d_name);
-        printf("%d\n", t.len);
-        /*bulk_upload(buff, lines);
-        if (strcmp(result, "ok") == 0) {
+        j = parse_tmp(namelist[k]->d_name, buff);
+        //struct BuffStruct t = parse_tmp(namelist[k]->d_name);
+        //printf("%d\n", j);
+        //for (k=0; k<30; k++) {printf("%d\n", buff[k][0]);}
+        *result = bulk_upload(buff, j-1);
+        /*if (strcmp(result, "ok") == 0) {
             remove(namelist[k]->d_name);    
         }*/
         free(namelist[k]);
