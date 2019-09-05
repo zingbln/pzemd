@@ -5,17 +5,26 @@
 #include <errno.h>
 #include <time.h>
 //#include <pthread.h>
+#include <signal.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <syslog.h>
 
 #include <modbus/modbus.h>
 #include <curl/curl.h>
 #include <dirent.h>
 
 //#define NUMT 
+//#define RUNNING_DIR "/home/marbel/pzemd"
+#define LOCK_FILE   "pzemd.lock"
 
 void upload_tmp(void);
 int file_select(const struct dirent *entry);
-char* bulk_upload(int buff[][7], int j);
+char* bulk_upload(int buff[][7], int j, CURL *curl);
 char* upload(char string[8000], CURL *curl);
+static void daemonize(); 
+void signal_handler(int sig);
+
 struct MemoryStruct chunk;
 
 char HOST[20],PATH[20], API_KEY[100];
@@ -24,6 +33,7 @@ struct MemoryStruct {
   char *memory;
   size_t size;
 };
+
 
 static size_t
 
@@ -35,7 +45,7 @@ WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp)
   char *ptr = realloc(mem->memory, mem->size + realsize + 1);
   if(ptr == NULL) {
     /* out of memory! */ 
-    printf("not enough memory (realloc returned NULL)\n");
+    //printf("not enough memory (realloc returned NULL)\n");
     return 0;
   }
   
@@ -46,6 +56,47 @@ WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp)
   mem->memory[mem->size] = 0;
  
   return realsize;
+}
+
+void signal_handler(int sig)
+{
+	switch(sig) {
+	case SIGHUP:
+        syslog (LOG_NOTICE, "hangup signal catched");
+		break;
+	case SIGTERM:
+        syslog (LOG_NOTICE, "terminate signal catched");
+        exit(0);
+		break;
+	}
+}
+
+static void daemonize() {
+	int i,lfp;
+	char str[10];
+	if(getppid()==1) return; /* already a daemon */
+	i=fork();
+	if (i<0) exit(1); /* fork error */
+	if (i>0) exit(0); /* parent exits */
+	/* child (daemon) continues */
+	setsid(); /* obtain a new process group */
+	for (i=getdtablesize();i>=0;--i) close(i); /* close all descriptors */
+	i=open("/dev/null",O_RDWR); dup(i); dup(i); /* handle standart I/O */
+	umask(027); /* set newly created file permissions */
+	//chdir(RUNNING_DIR); /* change running directory */
+	lfp=open(LOCK_FILE,O_RDWR|O_CREAT,0640);
+	if (lfp<0) exit(1); /* can not open */
+	if (lockf(lfp,F_TLOCK,0)<0) exit(0); /* can not lock */
+	/* first instance continues */
+	sprintf(str,"%d\n",getpid());
+	write(lfp,str,strlen(str)); /* record pid to lockfile */
+	signal(SIGCHLD,SIG_IGN); /* ignore child */
+	signal(SIGTSTP,SIG_IGN); /* ignore tty signals */
+	signal(SIGTTOU,SIG_IGN);
+	signal(SIGTTIN,SIG_IGN);
+	signal(SIGHUP,signal_handler); /* catch hangup signal */
+	signal(SIGTERM,signal_handler); /* catch kill signal */
+    openlog ("pzemd", LOG_PID, LOG_DAEMON);
 }
 
 void upload_tmp(void){
@@ -61,7 +112,7 @@ void upload_tmp(void){
     int k = 0;
     int var;
 
-
+    CURL *curl = curl_easy_init();
     n = scandir(".", &namelist, file_select, alphasort);
     if (n > 0) {
         for (k=0; k<n; k++) {
@@ -84,17 +135,19 @@ void upload_tmp(void){
         }
         fclose(file);
         }
-        *result = bulk_upload(buff, j-1);
-        printf("§%s\n", *result);
-        j=0;
-        if (strcmp(*result, "ok") == 0) {
-            remove(namelist[k]->d_name);    
+        if (curl) {
+            *result = bulk_upload(buff, j-1, curl);
+            //printf("§%s\n", *result);
+            if (strcmp(*result, "ok") == 0) {
+                remove(namelist[k]->d_name);    
+           }
         }
+        j=0;
         free(namelist[k]);
         }
     free(namelist);
     }
-
+    curl_easy_cleanup(curl);
 }
 
 char* upload(char string[8000], CURL *curl ){
@@ -123,42 +176,39 @@ return result;
 
 }
 
-char* bulk_upload(int buff[][7], int j){
+char* bulk_upload(int buff[][7], int j, CURL *curl){
 char url[8000], s[7000], p[7000], *result;// = NULL;
 int k;
 
     chunk.memory = malloc(1);
     chunk.size = 0;
 
-    CURL *curl = curl_easy_init();
     CURLcode res;
 
-    if (curl) {
-        strcpy(s, "[");
-        for ( k=0; k<=j;  k++) {
-            //printf("%d, %d, %d, %d, %d, %d",buff[k][1],  buff[k][2], buff[k][3], buff[k][4], buff[k][5], buff[k][6] );
-            sprintf(p, "[%d, \"emontx\",{\"current\":%.4f},{\"power\":%.3f},{\"voltage\":%.2f},{\"frequency\":%.2f},{\"energy\":%.0f},{\"powerfactor\":%.2f}]", buff[k][0]-buff[j][0], buff[k][1]*0.0001, buff[k][2]*0.01, buff[k][3]*0.01, buff[k][4]*0.01, buff[k][5]*0.1, buff[k][6]*0.001);   
+    strcpy(s, "[");
+    for ( k=0; k<=j;  k++) {
+         //printf("%d, %d, %d, %d, %d, %d",buff[k][1],  buff[k][2], buff[k][3], buff[k][4], buff[k][5], buff[k][6] );
+        sprintf(p, "[%d, \"emontx\",{\"current\":%.4f},{\"power\":%.3f},{\"voltage\":%.2f},{\"frequency\":%.2f},{\"energy\":%.0f},{\"powerfactor\":%.2f}]", buff[k][0]-buff[j][0], buff[k][1]*0.0001, buff[k][2]*0.01, buff[k][3]*0.01, buff[k][4]*0.01, buff[k][5]*0.1, buff[k][6]*0.001);   
 
-            strcat(s,p);
-            if (k<j){strcat(s, ",");}
-        }
-        strcat(s, "]");
-        printf("%s\n", s);
-        char *output = curl_easy_escape(curl, s, strlen(s));
-        sprintf(url, "%s/%s/input/bulk.json?data=%s&&time=%d&apikey=%s", HOST, PATH,  output, buff[j][0], API_KEY);
-        if(output) {
-	        curl_free(output);
-        }
-        curl_easy_setopt(curl, CURLOPT_URL, url);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
-        res = curl_easy_perform(curl);
-        if(res == CURLE_OK) {
-            result =  chunk.memory;
-        }
+        strcat(s,p);
+        if (k<j){strcat(s, ",");}
     }
+    strcat(s, "]");
+    //printf("%s\n", s);
+    char *output = curl_easy_escape(curl, s, strlen(s));
+    sprintf(url, "%s/%s/input/bulk.json?data=%s&&time=%d&apikey=%s", HOST, PATH,  output, buff[j][0], API_KEY);
+    if(output) {
+	     curl_free(output);
+    }
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+    res = curl_easy_perform(curl);
+    if(res == CURLE_OK) {
+        result =  chunk.memory;
+        }
     else {
-        strcpy(result, "false");
+        result = "false";
     }
 
 return result;
@@ -186,69 +236,77 @@ int main (void) {
     FILE *tmp;
     //struct dirent **namelist;
     
-
+daemonize();
 FILE* ptr = fopen("pzemd.cfg","r"); 
 if (ptr==NULL) { 
-    printf("no such file pzemd.cfg.\n"); 
+    //printf("no such file pzemd.cfg.\n"); 
+    syslog (LOG_ERR, "Config: No such file pzem.cfg");
     return 0; 
     } 
 
 if (fscanf(ptr, " USBSERIAL=%s ", val) == 1) {
     strcpy(USB_SERIAL, val); 
 } else {
-     printf("Please configure your USB Serial Port in pzemd.cfg\n"); 
+    syslog (LOG_ERR, "Config: No USB Serial configured");
+     //printf("Please configure your USB Serial Port in pzemd.cfg\n"); 
     return 0; 
 } 
 if (fscanf(ptr, " HOST=%s", val) == 1)  {
     strcpy(HOST, val); 
 } else {
-     printf("Please configure your Emoncms Host in pzemd.cfg\n"); 
+    syslog (LOG_ERR, "Config: No EmonCMS Host configured");
+     //printf("Please configure your Emoncms Host in pzemd.cfg\n"); 
     return 0; 
 }
 if (fscanf(ptr, " EMONPATH=%s", val) == 1)  {
     strcpy(PATH, val); 
 } else {
-     printf("Please configure your Emoncms Path in pzemd.cfg\n"); 
+    syslog (LOG_ERR, "Config: No EmonCMS Path configured");
+     //printf("Please configure your Emoncms Path in pzemd.cfg\n"); 
     return 0; 
 }
 if (fscanf(ptr, " APIKEY=%s", val) == 1) {
     strcpy(API_KEY, val); 
 }else {
-     printf("Please configure your Emoncms Api Key in pzemd.cfg\n"); 
+    syslog (LOG_ERR, "Config: No EmonCMS Api Key configured");
+     //printf("Please configure your Emoncms Api Key in pzemd.cfg\n"); 
     return 0; 
 }
 fclose(ptr);
 
 ctx = modbus_new_rtu(USB_SERIAL, 9600, 'N', 8, 1);
 if (modbus_connect(ctx) == -1) {
-	fprintf(stderr, "Connection failed: %s\n", modbus_strerror(errno));
+	//fprintf(stderr, "Connection failed: %s\n", modbus_strerror(errno));
+    syslog (LOG_ERR, "Modbus: Connection failed");
 	modbus_free(ctx);
 	return -1;
 	}	
 
 rc = modbus_set_slave(ctx, 0x01);
     if (rc == -1) {
-      fprintf(stderr, "Set slave error: %s\n", modbus_strerror(errno));
+      //fprintf(stderr, "Set slave error: %s\n", modbus_strerror(errno));
+    syslog (LOG_ERR, "Modbus: Set Slave Error");
       return -1;
-    } else {
+    } /*else {
       fprintf(stderr, "Slave set to 0x01\n");
-    }
-
-upload_tmp();
+    }*/
 
 curl_global_init(CURL_GLOBAL_ALL);
+upload_tmp();
 CURL *curl = curl_easy_init();
 if (curl) {
     curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
     curl_easy_setopt(curl, CURLOPT_TCP_KEEPIDLE, 120L);
     curl_easy_setopt(curl, CURLOPT_TCP_KEEPINTVL, 60L);
 
+    syslog (LOG_NOTICE, "started.");
     while(1){
 
     rc = modbus_read_input_registers(ctx, 0, 10, tab_reg);
     if (rc == -1) {
-        fprintf(stderr, "%s\n", modbus_strerror(errno));
-        //return -1;
+        //fprintf(stderr, "%s\n", modbus_strerror(errno));
+        syslog (LOG_ERR, "Modbus: %s", modbus_strerror(errno));
+        return -1;
     }
     if (rc != -1) {
 
@@ -269,7 +327,7 @@ if (curl) {
             if (j==1 && m==0) {
                 sprintf(s, "{\"current\": %.4f, \"power\": %.3f, \"voltage\": %.2f, \"frequency\": %.2f, \"energy\": %.0f, \"powerfactor\": %.2f}", buff10[j-1][1] *0.0001, buff10[j-1][2] *0.01, buff10[j-1][3] *0.01, buff10[j-1][4] *0.01, buff10[j-1][5]*0.1 , buff10[j-1][6] *0.001);
                 *result = upload(s, curl);
-                printf("§%s\n", *result);
+                //printf("§%s\n", *result);
                 if (strcmp(*result, "{\"success\": true}") == 0) {
                     j=0;
                     memset(buff10, 0, sizeof buff10);
@@ -278,8 +336,8 @@ if (curl) {
             }
 
         if (j>1 && m==0) {
-            *result = bulk_upload(buff10, j-1);
-            printf("§%s\n", *result);
+            *result = bulk_upload(buff10, j-1, curl);
+            //printf("§%s\n", *result);
             if (strcmp(*result, "ok") == 0) {
                 j=0;
                 memset(buff10, 0, sizeof buff10);
@@ -289,7 +347,7 @@ if (curl) {
 
 
         if (j==30 && m==0) {
-
+            syslog (LOG_WARNING, "libcurl: EmonCMS Host not reachable");
             sprintf(filename, "%d.tmp", buff10[0][0]);
             tmp = fopen(filename, "w+"); 
             if (tmp != NULL) {
@@ -317,12 +375,13 @@ if (curl) {
                     j=0;
                     strcpy(s, "{}");
                     *result = upload(s, curl);
-                    printf("§%s\n", *result);
+                    //printf("§%s\n", *result);
                     if (strcmp(*result, "{\"success\": true}") == 0) {
                         upload_tmp();
                         m=0;
                     }
                     else {
+                        syslog (LOG_WARNING, "libcurl: EmonCMS Host not reachable");
                         m++;
                     }
                 }
@@ -341,6 +400,8 @@ curl_easy_cleanup(curl);
 curl_global_cleanup();
 modbus_close(ctx);
 modbus_free(ctx);
+syslog (LOG_NOTICE, "terminated.");
+closelog();
     return 0;
 }
 
