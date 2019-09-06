@@ -8,6 +8,7 @@
 #include <signal.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <syslog.h>
 
 #include <modbus/modbus.h>
@@ -16,13 +17,12 @@
 
 //#define NUMT 
 //#define RUNNING_DIR "/home/marbel/pzemd"
-#define LOCK_FILE   "pzemd.lock"
 
+void daemonize(void);
 void upload_tmp(void);
 int file_select(const struct dirent *entry);
 char* bulk_upload(int buff[][7], int j, CURL *curl);
 char* upload(char string[8000], CURL *curl);
-static void daemonize(); 
 void signal_handler(int sig);
 
 struct MemoryStruct chunk;
@@ -56,47 +56,6 @@ WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp)
   mem->memory[mem->size] = 0;
  
   return realsize;
-}
-
-void signal_handler(int sig)
-{
-	switch(sig) {
-	case SIGHUP:
-        syslog (LOG_NOTICE, "hangup signal catched");
-		break;
-	case SIGTERM:
-        syslog (LOG_NOTICE, "terminate signal catched");
-        exit(0);
-		break;
-	}
-}
-
-static void daemonize() {
-	int i,lfp;
-	char str[10];
-	if(getppid()==1) return; /* already a daemon */
-	i=fork();
-	if (i<0) exit(1); /* fork error */
-	if (i>0) exit(0); /* parent exits */
-	/* child (daemon) continues */
-	setsid(); /* obtain a new process group */
-	for (i=getdtablesize();i>=0;--i) close(i); /* close all descriptors */
-	i=open("/dev/null",O_RDWR); dup(i); dup(i); /* handle standart I/O */
-	umask(027); /* set newly created file permissions */
-	//chdir(RUNNING_DIR); /* change running directory */
-	lfp=open(LOCK_FILE,O_RDWR|O_CREAT,0640);
-	if (lfp<0) exit(1); /* can not open */
-	if (lockf(lfp,F_TLOCK,0)<0) exit(0); /* can not lock */
-	/* first instance continues */
-	sprintf(str,"%d\n",getpid());
-	write(lfp,str,strlen(str)); /* record pid to lockfile */
-	signal(SIGCHLD,SIG_IGN); /* ignore child */
-	signal(SIGTSTP,SIG_IGN); /* ignore tty signals */
-	signal(SIGTTOU,SIG_IGN);
-	signal(SIGTTIN,SIG_IGN);
-	signal(SIGHUP,signal_handler); /* catch hangup signal */
-	signal(SIGTERM,signal_handler); /* catch kill signal */
-    openlog ("pzemd", LOG_PID, LOG_DAEMON);
 }
 
 void upload_tmp(void){
@@ -223,20 +182,33 @@ int file_select(const struct dirent *entry)
 }
 
 int main (void) {
-    char USB_SERIAL[10],  val[100], filename[12], *result[100];
-    char s[7000]; //p[7000];// = NULL;
+    char str[10], USB_SERIAL[10],  val[100], filename[12], *result[100], s[7000];
     modbus_t *ctx;
     uint16_t tab_reg[64];
     int rc;
-    int i=0,j=0,k,m=0;
+    int pid_fd,i=0,j=0,k,m=0;
     //long response_code;
     //int buff[30][7];
     int buff10[30][7]; 
     //pthread_t tid[NUMT]
     FILE *tmp;
     //struct dirent **namelist;
-    
-daemonize();
+    openlog ("pzemd", LOG_PID, LOG_DAEMON);
+
+    pid_fd = open("pzemd.lock", O_RDWR|O_CREAT, 0640);
+    if (pid_fd < 0) {
+        syslog (LOG_ERR, "Can't open lockfile");
+        exit(0);
+    }
+    if (lockf(pid_fd, F_TLOCK, 0) < 0) {
+        syslog (LOG_ERR, "Can't lock lockfile *");
+        exit(0);
+    }
+     /* Get current PID */
+    sprintf(str, "%d\n", getpid());
+    /* Write PID to lockfile */
+    write(pid_fd, str, strlen(str));
+
 FILE* ptr = fopen("pzemd.cfg","r"); 
 if (ptr==NULL) { 
     //printf("no such file pzemd.cfg.\n"); 
