@@ -1,11 +1,14 @@
 [Unit]
 Description=PZEM016 to EmonCMS Service
-After=remote-fs.target
-After=apache2.service
+After=remote-fs.target apache2.service
 
 [Service]
 Type=simple
 User=marbel
-WorkingDirectory=/home/marbel/pzemd/
-ExecStart=/home/marbel/pzemd/pzemd
-Restart=on-failure
+WorkingDirectory=/home/pi/pzemd/
+ExecStart=/home/pi/pzemd/pzemd
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+

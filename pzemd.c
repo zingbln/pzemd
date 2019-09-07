@@ -5,25 +5,20 @@
 #include <errno.h>
 #include <time.h>
 //#include <pthread.h>
-#include <signal.h>
 #include <fcntl.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <syslog.h>
 
 #include <modbus/modbus.h>
 #include <curl/curl.h>
-#include <dirent.h>
+#include <diet/dirent.h>
 
 //#define NUMT 
 //#define RUNNING_DIR "/home/marbel/pzemd"
 
-void daemonize(void);
 void upload_tmp(void);
 int file_select(const struct dirent *entry);
 char* bulk_upload(int buff[][7], int j, CURL *curl);
 char* upload(char string[8000], CURL *curl);
-void signal_handler(int sig);
 
 struct MemoryStruct chunk;
 
@@ -75,7 +70,7 @@ void upload_tmp(void){
     n = scandir(".", &namelist, file_select, alphasort);
     if (n > 0) {
         for (k=0; k<n; k++) {
-            printf("%d %s\n", k,  namelist[k]->d_name);
+            //printf("%d %s\n", k,  namelist[k]->d_name);
             //j = parse_tmp(namelist[k]->d_name, buff);
             file = fopen(namelist[k]->d_name, "r");
     
