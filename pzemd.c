@@ -10,10 +10,10 @@
 
 #include <modbus/modbus.h>
 #include <curl/curl.h>
-#include <diet/dirent.h>
+#include <dirent.h>
+
 
 //#define NUMT 
-//#define RUNNING_DIR "/home/marbel/pzemd"
 
 void upload_tmp(void);
 int file_select(const struct dirent *entry);
@@ -331,13 +331,15 @@ if (curl) {
         if (m>0) {
             if (j==1) {
                 sprintf(filename, "%d.tmp", buff10[0][0]);
-                tmp = fopen(filename, "w+"); 
+                //tmp = fopen(filename, "w+"); //GCC8 
             }
+            tmp = fopen(filename, "a+"); //GCC6
             if (tmp != NULL) {
                 fprintf(tmp, "%d,%d,%d,%d,%d,%d,%d\n", buff10[j-1][0], buff10[j-1][1], buff10[j-1][2], buff10[j-1][3], buff10[j-1][4], buff10[j-1][5], buff10[j-1][6]);
-                fflush(tmp);
+                //fflush(tmp); //GCC8
+                fclose(tmp); //GCC6
                 if (j==30) {
-                    fclose(tmp);
+                    //fclose(tmp); //GCC8
                     memset(buff10, 0, sizeof buff10);
                     j=0;
                     strcpy(s, "{}");

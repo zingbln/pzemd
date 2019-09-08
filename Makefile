@@ -1,5 +1,5 @@
-CC = gcc
-CC_OPTIONS = -O -Wmissing-prototypes -Wall -pedantic 
+CC = gcc 
+CC_OPTIONS = -O  -Wmissing-prototypes -Wall -pedantic 
 
 LIBS = -lmodbus -lcurl 
 
