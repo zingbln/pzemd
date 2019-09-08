@@ -95,6 +95,9 @@ void upload_tmp(void){
             if (strcmp(*result, "ok") == 0) {
                 remove(namelist[k]->d_name);    
            }
+            else {
+                n=k;
+            }
         }
         j=0;
         free(namelist[k]);
@@ -333,11 +336,14 @@ if (curl) {
                 sprintf(filename, "%d.tmp", buff10[0][0]);
                 //tmp = fopen(filename, "w+"); //GCC8 
             }
-            tmp = fopen(filename, "a+"); //GCC6
-            if (tmp != NULL) {
-                fprintf(tmp, "%d,%d,%d,%d,%d,%d,%d\n", buff10[j-1][0], buff10[j-1][1], buff10[j-1][2], buff10[j-1][3], buff10[j-1][4], buff10[j-1][5], buff10[j-1][6]);
-                //fflush(tmp); //GCC8
-                fclose(tmp); //GCC6
+            if (j>=1) {
+                tmp = fopen(filename, "a+"); //GCC6
+                if (tmp != NULL) {
+                    fprintf(tmp, "%d,%d,%d,%d,%d,%d,%d\n", buff10[j-1][0], buff10[j-1][1], buff10[j-1][2], buff10[j-1][3], buff10[j-1][4], buff10[j-1][5], buff10[j-1][6]);
+                    //fflush(tmp); //GCC8
+                    fclose(tmp); //GCC6
+                }
+            }
                 if (j==30) {
                     //fclose(tmp); //GCC8
                     memset(buff10, 0, sizeof buff10);
@@ -354,7 +360,7 @@ if (curl) {
                         m++;
                     }
                 }
-            }
+            
         }
 
     }
